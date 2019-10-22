@@ -1,0 +1,172 @@
+---
+title: 'Exploration and data analysis'
+author: "Joan Claverol Romero"
+date: "21/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F, fig.align = "center")
+# library 
+if (require(pacman) == FALSE) {
+  install.packages("pacman")
+}
+pacman::p_load(fpp2, tidyverse, lubridate, plotly, beanplot, tibbletime)
+# load data ----
+df <- read_rds("../../data/raw_data/household_power_consumption.rds")
+```
+
+## Exploration and data analyisis
+
+### Data quality problems:
+
+* 
+
+### Time analysis
+
+We can detect there are different gaps in the data variable with missing values:
+
+
+
+### Missing values
+
+```{r}
+# load data with daylight savings
+df <- read_rds("../../data/clean_data/day_light_savings.rds")
+# find missing values
+df %>% 
+  group_by(year = year(date_time), 
+           month = month(date_time, label = T, abbr = T)) %>% 
+  summarise_all(~sum(is.na(.))) %>% 
+  ggplot(aes(x = month, y = Global_active_power)) +
+    geom_col(fill = "dodgerblue4") +
+    facet_wrap(~year) +
+    labs(title = "Quantity of missing values by month") +
+    theme_minimal() +
+    theme(
+      axis.title.y = element_blank(),
+      axis.text.x = element_text(angle = 45, size = 10), 
+      axis.title.x = element_blank()
+    )
+```
+
+#### season effect
+
+```{r}
+# load data
+df <- read_rds("../../data/clean_data/processed_data.rds")
+
+df %>% 
+  group_by(date = date(date_time)) %>% 
+  summarise(mean = mean(ActiveEnergy)) %>%
+  ggplot(aes(date, mean)) + 
+    geom_line(color = "dodgerblue4", alpha = 0.4) + 
+    geom_smooth(color = "dodgerblue4", se = F) + 
+    labs(title = "Mean active energy consumed by day") + 
+    ylab("Watt/h") + xlab("Time") + 
+    theme_light()
+```
+
+Yes, there is a seasonality on the data, so the season has an influence in the energy consumption: In winter there is a high consumption and in summer there is less consumption. Important to consider that the season in our model. 
+
+Another way to show the same information:
+
+```{r}
+df %>% 
+  mutate(month = month(date_time, label = T), 
+         year = year(date_time)) %>% 
+  group_by(year, month) %>% 
+  summarise(mean_A.E. = mean(ActiveEnergy)) -> x
+
+ts <- ts(x$mean_A.E., start = 2007, frequency = 12)
+ggsubseriesplot(ts) + theme_bw()
+```
+
+#### week day effect
+
+```{r}
+df %>% 
+  mutate(wday = wday(date_time, label = T, abbr = F, week_start = 1), 
+         hour.minutes = paste(hour(date_time), 
+                              minute(date_time), 
+                              second(date_time), sep = ":")) %>% 
+  group_by(wday, hour.minutes) %>% 
+  summarise(median = round(median(ActiveEnergy),2)) -> week.general
+
+week.general$hour.minutes <- as.POSIXct(strptime(week.general$hour.minutes, 
+                                                 format = "%H:%M:%S", tz = "GMT"), 
+                                        format = "%H:%M:%S")
+
+week.general %>% 
+  ggplot(aes(hour.minutes, median)) + 
+    geom_line(col = "dodgerblue4") + 
+    facet_wrap(wday~.) + 
+    scale_x_datetime(date_labels = "%H:%M") +
+    labs(title = "Median active energy/week") + 
+    ylab("Median Watt/h") + xlab("Time") + 
+    theme_light() + 
+    theme(
+      axis.title.x = element_blank()
+    )
+```
+
+Yes, there is diffent energy consumption in relation to the day of the week:
+
+* Monday to Friday they follow similar patterns
+* Saturday the most different day of the whol week
+* Sunday ALso different to the resto of the week, but has similitudes
+* And we can also see that there are different consumptions in the morning, miday and evening.
+
+##### Understanding the distribution of each wday for the whole year {.tabset}
+
+###### Boxplots
+
+```{r}
+week.general %>% 
+  ggplot(aes(wday, median)) + 
+  geom_boxplot(col = "dodgerblue4") +
+  labs(title = "Kw/h distribution by week day") +
+  theme_bw() +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+  # No outliers
+```
+
+###### Beanplots
+
+```{r}
+beanplot(week.general$median ~ week.general$wday, col = c("blue", "red", "yellow"))
+```
+
+#### submetter analyisis
+
+```{r}
+# Are the submeters collecting all the possible information
+x <- c("Kitchen","Laundry","W.A_HeatCold","UnkownEnergy")
+
+df %>% 
+  select(season, x) %>% 
+  gather(x, key = submeters, value = energy_consumption) %>% 
+  group_by(season, submeters) %>% 
+  summarise(energy_consumption = sum(energy_consumption)) -> submPerc
+
+# define colors to use 
+cbp1 <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+brks <- c(0, 0.25, 0.5, 0.75, 1)
+submPerc %>%
+  ggplot(aes(season, energy_consumption)) + 
+    geom_col(aes(fill = submeters), position = "fill") +
+    scale_fill_manual(values = cbp1) +
+    labs(title = "Energy consumption by season") +
+    scale_y_continuous(breaks = brks, labels = scales::percent(brks)) +
+    ylab("% submters") + xlab("Season") + 
+    theme_minimal() +
+    theme(
+     axis.title.x = element_blank() 
+    )
+```
+
