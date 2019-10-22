@@ -1,0 +1,64 @@
+---
+title: "model_analysis"
+author: "Joan Claverol Romero"
+date: "22/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+# libraries
+if (require(pacman) == FALSE) {
+  install.packages("pacman")
+}
+pacman::p_load(tidyverse, lubridate, modelr)
+# load the data
+data <- read_rds("../../data/clean_data/model_data.rds")
+# model 
+model <- read_rds("../../data/clean_data/lm_fit.rds")
+```
+
+## Study of the out of the model
+
+```{r}
+data %>% 
+  filter(year == 2010) %>% 
+  add_predictions(model = model, var = "pred") %>% 
+  ggplot(aes(x = date)) +
+    geom_line(aes(y = ActiveEnergy), col = "dodgerblue4") +
+    geom_line(aes(y = pred), col = "red") +
+    theme_light()
+```
+
+How is going to be the end of 2010 and 2011 predictions
+
+```{r}
+predictions <- tibble(
+  # we create a range of dates we want to predict the energy consumption
+  date = as_date(max(data$date):as_date("2018-12-31"))
+  ) %>% 
+  # we do the same pre process we did on the modeling
+   mutate(
+    week_day = wday(date, label = T, abbr = F),
+    week_n = week(date),
+    month = month(date, label = T, abbr = F),
+    year = year(date)
+  ) %>% 
+  dummy_cols(select_columns = c("week_day","week_n")) %>% 
+  select(-week_n_1, -week_day_Monday)
+
+data %>% 
+  select(names(predictions)) %>% 
+  bind_rows(predictions) %>% 
+  filter(between(year, 2010, 2011)) %>% 
+  add_predictions(model = model, var = "pred") %>% 
+  ggplot(aes(x = date)) +
+    geom_line(aes(y = if_else(date >= max(data$date), pred, NULL)), 
+              col = "dodgerblue4", linetype = "dashed") +
+    geom_line(data = data %>% filter(year == 2010), aes(y = ActiveEnergy), 
+              col = "dodgerblue4") +
+    labs(title = "Predictions energy consumption") +
+    theme_light()
+
+```
+

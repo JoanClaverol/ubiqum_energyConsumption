@@ -1,0 +1,57 @@
+---
+title: "Applience exploration"
+author: "Joan Claverol Romero"
+date: "22/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# libraries
+if (require(pacman) == FALSE) {
+  install.packages("pacman")
+}
+pacman::p_load(tidyverse, lubridate, forecast)
+
+```
+
+## Appliance exporation
+
+GOAL: create an script to detect specific appliences
+
+### Find out appliences
+
+We focus on the kithen to fin out an specific applience
+
+```{r}
+data %>% 
+  select(date_time, Kitchen) %>% 
+  filter(date(date_time) == "2007-02-06") %>% 
+  ggplot(aes(x = date_time, y = Kitchen)) +
+    geom_line(color = "dodgerblue4") +
+    theme_light()
+```
+
+Where is the fridge?
+
+```{r}
+data %>% 
+  select(date_time, Laundry) %>% 
+  # filter(date(date_time) == "2007-02-06", between(hour(date_time), 3, 10)) %>% 
+  filter(between(date(date_time),as_date("2007-01-01"),as_date("2007-01-04"))) %>% 
+  ggplot(aes(x = date_time, y = Laundry)) +
+    geom_line(color = "dodgerblue4") +
+    theme_light()
+```
+
+There it is. How can we automaticly create a model to predict when is it going to turn on? We can cerate a time series object and then look if there is autocorrelation in the variable:
+
+```{r}
+# create time sereis witha sample form 1st quarter 2007
+sample_data <- data %>% 
+  filter(between(date(date_time),as_date("2007-01-01"),as_date("2007-01-03")))
+ts_data <- ts(data = sample_data$Laundry, start = c(2007,1), frequency = 60*24)
+
+autoplot(decompose(ts_data)) + theme_light()
+```
+
