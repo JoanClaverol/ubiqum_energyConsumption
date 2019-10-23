@@ -12,7 +12,8 @@ if (require(pacman) == FALSE) {
   install.packages("pacman")
 }
 pacman::p_load(tidyverse, lubridate, forecast)
-
+# load data
+data <- read_rds("../../data/clean_data/processed_data.rds")
 ```
 
 ## Appliance exporation
@@ -38,10 +39,12 @@ Where is the fridge?
 data %>% 
   select(date_time, Laundry) %>% 
   # filter(date(date_time) == "2007-02-06", between(hour(date_time), 3, 10)) %>% 
-  filter(between(date(date_time),as_date("2007-01-01"),as_date("2007-01-04"))) %>% 
+  filter(between(date(date_time),as_date("2010-01-01"),as_date("2010-01-05"))) %>% 
   ggplot(aes(x = date_time, y = Laundry)) +
     geom_line(color = "dodgerblue4") +
-    theme_light()
+    theme_light() -> temp_p
+plotly::ggplotly(temp_p)
+
 ```
 
 There it is. How can we automaticly create a model to predict when is it going to turn on? We can cerate a time series object and then look if there is autocorrelation in the variable:
@@ -53,5 +56,53 @@ sample_data <- data %>%
 ts_data <- ts(data = sample_data$Laundry, start = c(2007,1), frequency = 60*24)
 
 autoplot(decompose(ts_data)) + theme_light()
+```
+
+Let's see if we can create a function to automaticly detect when the fridge is on:
+
+```{r}
+library(magrittr)
+
+# create the sample data
+sample_data <- data %>% 
+  filter(between(date(date_time),as_date("2007-01-01"),as_date("2007-01-02")))
+
+# i <- 22
+for (i in seq_along(sample_data$Laundry)) {
+  # detect when the fridge turns on
+  if ((sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
+      sample_data$Laundry[i-1] == 0) {
+    output %<>% 
+      bind_rows(sample_data[i,], sample_data[i-1,])
+  } 
+  # detect the energy of the fridge once is turned on
+  else if ((sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
+           (sample_data$Laundry[i-1] == 1 || sample_data$Laundry[i-1] == 2) &&
+           (sample_data$Laundry[i+1] == 1 || sample_data$Laundry[i+1] == 2)) {
+    output %<>% 
+      bind_rows(sample_data[i,])
+  } 
+  # detect the fridge before it turns off
+  else if ((sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
+            sample_data$Laundry[i+1] == 0){
+    output %<>% 
+      bind_rows(sample_data[i,], sample_data[i+1,])
+  }
+}
+
+output %>% 
+  ggplot(aes(x = date_time, y = Laundry)) +
+    geom_line() -> temp_p
+plotly::ggplotly(temp_p)
+
+temp <- output %>% 
+  arrange(date_time) %>% 
+  select(date_time, Laundry) %>% 
+  mutate(on_off = if_else(Laundry == 0, "Off","On"))
+
+temp_max_date <- temp %>% 
+  filter(between(date(date_time),as_date("2007-09-10"),as_date("2007-09-11"))) %>% 
+  ggplot(aes(x = date_time, y = Laundry)) +
+    geom_line()
 ```
 

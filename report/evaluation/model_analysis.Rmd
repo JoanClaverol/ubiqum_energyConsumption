@@ -6,12 +6,12 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F, fig.align = "center")
 # libraries
 if (require(pacman) == FALSE) {
   install.packages("pacman")
 }
-pacman::p_load(tidyverse, lubridate, modelr)
+pacman::p_load(tidyverse, lubridate, modelr, fastDummies)
 # load the data
 data <- read_rds("../../data/clean_data/model_data.rds")
 # model 
@@ -25,9 +25,15 @@ data %>%
   filter(year == 2010) %>% 
   add_predictions(model = model, var = "pred") %>% 
   ggplot(aes(x = date)) +
-    geom_line(aes(y = ActiveEnergy), col = "dodgerblue4") +
+    geom_line(aes(y = ActiveEnergy), col = "dodgerblue4", alpha = 0.4) +
     geom_line(aes(y = pred), col = "red") +
-    theme_light()
+    labs(title = "Forecast vs actual energy consumption", 
+         subtitle = "Blue: Actual energy \nRed: Predicted energy"
+         ) +
+    theme_light() +
+    theme(
+      axis.title.x = element_blank()
+    )
 ```
 
 How is going to be the end of 2010 and 2011 predictions
@@ -54,11 +60,42 @@ data %>%
   add_predictions(model = model, var = "pred") %>% 
   ggplot(aes(x = date)) +
     geom_line(aes(y = if_else(date >= max(data$date), pred, NULL)), 
-              col = "dodgerblue4", linetype = "dashed") +
+              col = "dodgerblue4", linetype = "dotted") +
     geom_line(data = data %>% filter(year == 2010), aes(y = ActiveEnergy), 
               col = "dodgerblue4") +
     labs(title = "Predictions energy consumption") +
-    theme_light()
+    theme_light() +
+    theme(
+      axis.title.y = element_blank()
+    ) -> temp_p
+plotly::ggplotly(temp_p)
 
+```
+
+which would be the trend for the future years:
+
+```{r}
+data %>% 
+  select(names(predictions)) %>% 
+  bind_rows(predictions) %>% 
+  filter(between(year, 2007, 2012)) %>% 
+  add_predictions(model = model, var = "pred") %>% 
+  group_by(year) %>% 
+  summarise(pred = sum(pred)) %>% 
+  ggplot(aes(x = year)) +
+    geom_col(aes(y = if_else(year >= max(data$year), pred, NULL)), 
+              fill = "dodgerblue4", alpha = 0.4) +
+    geom_col(data = data %>% 
+               filter(year != 2006) %>% 
+                group_by(year) %>% 
+                summarise(ActiveEnergy = sum(ActiveEnergy)), 
+              aes(y = ActiveEnergy), 
+              fill = "dodgerblue4") +
+    labs(title = "Predictions energy consumption") +
+    ylab("Total energy consumed") +
+    theme_light() +
+    theme(
+      axis.title.x = element_blank()
+    ) 
 ```
 
