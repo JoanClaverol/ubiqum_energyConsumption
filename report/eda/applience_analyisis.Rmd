@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 if (require(pacman) == FALSE) {
   install.packages("pacman")
 }
-pacman::p_load(tidyverse, lubridate, forecast)
+pacman::p_load(tidyverse, lubridate, forecast, magrittr)
 # load data
 data <- read_rds("../../data/clean_data/processed_data.rds")
 ```
@@ -21,17 +21,6 @@ data <- read_rds("../../data/clean_data/processed_data.rds")
 GOAL: create an script to detect specific appliences
 
 ### Find out appliences
-
-We focus on the kithen to fin out an specific applience
-
-```{r}
-data %>% 
-  select(date_time, Kitchen) %>% 
-  filter(date(date_time) == "2007-02-06") %>% 
-  ggplot(aes(x = date_time, y = Kitchen)) +
-    geom_line(color = "dodgerblue4") +
-    theme_light()
-```
 
 Where is the fridge?
 
@@ -61,48 +50,116 @@ autoplot(decompose(ts_data)) + theme_light()
 Let's see if we can create a function to automaticly detect when the fridge is on:
 
 ```{r}
-library(magrittr)
-
 # create the sample data
-sample_data <- data %>% 
-  filter(between(date(date_time),as_date("2007-01-01"),as_date("2007-01-02")))
+sample_data <- data %>%
+  filter(between(date(date_time),as_date("2007-01-01"),as_date("2010-11-26")))
 
+output <- vector("double", length = nrow(sample_data))
+  
 # i <- 22
 for (i in seq_along(sample_data$Laundry)) {
   # detect when the fridge turns on
-  if ((sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
-      sample_data$Laundry[i-1] == 0) {
-    output %<>% 
-      bind_rows(sample_data[i,], sample_data[i-1,])
+  if (sample_data$Laundry[i-1] == 0 && 
+      (sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
+      (sample_data$Laundry[i+1] == 1 || sample_data$Laundry[i+1] == 2)) {
+    output[i-1] <- i-1
+    output[i] <- i
   } 
   # detect the energy of the fridge once is turned on
-  else if ((sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
-           (sample_data$Laundry[i-1] == 1 || sample_data$Laundry[i-1] == 2) &&
+  else if ((sample_data$Laundry[i-1] == 1 || sample_data$Laundry[i-1] == 2) && 
+           (sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) &&
            (sample_data$Laundry[i+1] == 1 || sample_data$Laundry[i+1] == 2)) {
-    output %<>% 
-      bind_rows(sample_data[i,])
+    output[i] <- i
   } 
   # detect the fridge before it turns off
-  else if ((sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
+  else if ((sample_data$Laundry[i-1] == 1 || sample_data$Laundry[i-1] == 2) &&
+           (sample_data$Laundry[i] == 1 || sample_data$Laundry[i] == 2) && 
             sample_data$Laundry[i+1] == 0){
-    output %<>% 
-      bind_rows(sample_data[i,], sample_data[i+1,])
+    output[i] <- i
+    output[i+1] <- i+1
+  }
+}
+```
+
+
+```{r}
+# create a tibble with fridge information
+fridge <- tibble(id = output)
+
+fridge %<>% 
+  mutate(id = as.character(id)) %>% 
+  filter(id != 0) %>% 
+  left_join(y = sample_data %>% 
+              rownames_to_column(var = "id") %>% 
+              select(id, date_time, Laundry), by = "id") %>% 
+  drop_na() %>% 
+  write_rds("../../data/clean_data/fridge_data.rds")
+```
+
+
+```{r}
+temp <- fridge %>% 
+  head(100)
+
+temp %>% 
+  mutate(engine = if_else(Laundry == 0, "Off", "On"))
+
+
+fridge_on_off <- fridge %>% 
+  filter(Laundry == 0)
+
+temp <- fridge_on_off
+output <- vector(length = nrow(fridge_on_off), mode = "double")
+
+for (i in seq(0, length(temp$Laundry), 2)) {
+  output[i-1] <- paste0("fridge_",i) 
+  output[i] <- paste0("fridge_",i)
+}
+
+fridge_on_off$name <- output
+
+fridge_semi_label <- fridge %>% 
+  left_join(fridge_on_off %>% select(id, name), by = "id")
+
+label <- fridge_semi_label$name
+
+for (i in seq_along(label)) {
+  row <- 1
+  while (is.na(label[i])) {
+    label[i] <- label[i-row]
+    row <- row+1
   }
 }
 
-output %>% 
-  ggplot(aes(x = date_time, y = Laundry)) +
-    geom_line() -> temp_p
-plotly::ggplotly(temp_p)
+energy_time <- vector(mode = "double", length = length(label)-1)
 
-temp <- output %>% 
-  arrange(date_time) %>% 
-  select(date_time, Laundry) %>% 
-  mutate(on_off = if_else(Laundry == 0, "Off","On"))
+time <- 0
+for (i in seq_along(energy_time)) {
+  if (label[i] == label[i+1]) {
+    energy_time[i] <- time 
+    time <- time + 1
+  } else {
+    time <- 1
+  }
+}
 
-temp_max_date <- temp %>% 
-  filter(between(date(date_time),as_date("2007-09-10"),as_date("2007-09-11"))) %>% 
-  ggplot(aes(x = date_time, y = Laundry)) +
-    geom_line()
+fridge_semi_label$name <- label
+fridge_semi_label$energy_time <- c(energy_time, 0)
+
+fridge_energy <- fridge_semi_label %>% 
+  group_by(name) %>% 
+  summarise(n = sum(Laundry)) %>% 
+  rowid_to_column(var = "time")
+
+
+library(gganimate)
+theme_set(theme_bw())
+
+fridge_semi_label %>% 
+  filter(year(date_time) == 2007, name == "fridge_2") %>%
+  ggplot(aes(x = energy_time, y = Laundry)) +
+    geom_line() +
+    transition_time(name) +
+    labs(title = "Fridge: {frame_time}")
 ```
 
