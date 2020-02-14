@@ -159,7 +159,6 @@ fridge_semi_label %>%
   filter(year(date_time) == 2007, name == "fridge_2") %>%
   ggplot(aes(x = energy_time, y = Laundry)) +
     geom_line() +
-    transition_time(name) +
     labs(title = "Fridge: {frame_time}")
 ```
 
